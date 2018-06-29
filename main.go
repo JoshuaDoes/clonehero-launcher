@@ -112,7 +112,7 @@ func main() {
 				break
 			}
 		case "Windows (32).rar":
-			if runtime.GOOS == "windows" && runtime.GOARCH == "i386" {
+			if runtime.GOOS == "windows" && runtime.GOARCH == "386" {
 				downloadFound = true
 				fmt.Println("> Downloading Clone Hero...")
 				m.DownloadFile(v, "clonehero.rar", nil, true)
