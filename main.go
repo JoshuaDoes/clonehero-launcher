@@ -146,6 +146,14 @@ func main() {
 	fmt.Println("> Removing Clone Hero archive...")
 	os.Remove("clonehero.rar")
 
+	if runtime.GOOS == "linux" {
+		fmt.Println("> Moving game files to current working directory...")
+		_ = os.Rename("Linux/Clone Hero_Data", "Clone Hero_Data")
+		_ = os.Rename("Linux/Clone Hero.x86_64", "Clone Hero.x86_64")
+		_ = os.Rename("Linux/README.txt", "README.txt")
+		os.RemoveAll("Linux")
+	}
+
 	runCloneHero()
 }
 
