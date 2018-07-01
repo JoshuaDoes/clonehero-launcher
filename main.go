@@ -44,18 +44,18 @@ func main() {
 	update := &Update{}
 	updateResult, err := http.Get(UpdateURL)
 	if err != nil {
-		clonehero()
+		runCloneHero()
 		panic(err)
 	}
 	err = unmarshal(updateResult, update)
 	if err != nil {
-		clonehero()
+		runCloneHero()
 		panic(err)
 	}
 
 	latestVersion, err := strconv.ParseFloat(update.Version, 32)
 	if err != nil {
-		clonehero()
+		runCloneHero()
 		panic(err)
 	}
 	installUpdated := false
@@ -65,7 +65,7 @@ func main() {
 		fmt.Println("> Reading Clone Hero data...")
 		data, err := ioutil.ReadFile("Clone Hero_Data/data.unity3d")
 		if err != nil {
-			clonehero()
+			runCloneHero()
 			panic(err)
 		}
 		fmt.Println("> Checking if Clone Hero is latest version...")
@@ -75,7 +75,7 @@ func main() {
 	}
 	if installUpdated {
 		fmt.Println("> Clone Hero is already up-to-date")
-		clonehero()
+		runCloneHero()
 		os.Exit(0)
 	} else {
 		fmt.Println("> Updating...")
@@ -84,18 +84,18 @@ func main() {
 	fmt.Println("> Fetching Mega.nz URL...")
 	gExpand, err := g.Expand(update.Download)
 	if err != nil {
-		clonehero()
+		runCloneHero()
 		panic(err)
 	}
 	megaURL := gExpand.LongUrl
 
-	fmt.Println("> Setting MegaFS to folder node...")
+	fmt.Println("> Setting MegaFS to Clone Hero folder...")
 	_, _ = m.ReturnPublicNode(megaURL)
 
 	fmt.Println("> Fetching MegaFS...")
 	megaFS := m.FS
 
-	fmt.Println("> Fetching MegaFS nodes...")
+	fmt.Println("> Fetching MegaFS files...")
 	megaFSNodes := megaFS.GetAllNodes()
 
 	fmt.Println("> Looking for Clone Hero " + runtime.GOOS + "/" + runtime.GOARCH + "...")
@@ -107,61 +107,75 @@ func main() {
 		case "Windows (64).rar":
 			if runtime.GOOS == "windows" && runtime.GOARCH == "amd64" {
 				downloadFound = true
-				fmt.Println("> Downloading Clone Hero...")
+				fmt.Println("> Downloading Clone Hero for " + runtime.GOOS + "/" + runtime.GOARCH + "...")
 				m.DownloadFile(v, "clonehero.rar", nil, true)
 				break
 			}
 		case "Windows (32).rar":
 			if runtime.GOOS == "windows" && runtime.GOARCH == "386" {
 				downloadFound = true
-				fmt.Println("> Downloading Clone Hero...")
+				fmt.Println("> Downloading Clone Hero for " + runtime.GOOS + "/" + runtime.GOARCH + "...")
 				m.DownloadFile(v, "clonehero.rar", nil, true)
 				break
 			}
 		case "Linux.rar":
 			if runtime.GOOS == "linux" {
 				downloadFound = true
-				fmt.Println("> Downloading Clone Hero...")
+				fmt.Println("> Downloading Clone Hero for " + runtime.GOOS + "/" + runtime.GOARCH + "...")
 				m.DownloadFile(v, "clonehero.rar", nil, true)
 				break
 			}
 		}
 	}
 	if !downloadFound {
-		clonehero()
+		runCloneHero()
 		panic(errors.New("Error finding download for " + runtime.GOOS + "/" + runtime.GOARCH))
 	}
+
+	fmt.Println("> Removing previous Clone Hero game files...")
+	removeCloneHero()
 
 	fmt.Println("> Extracting Clone Hero...")
 	err = archiver.Rar.Open("clonehero.rar", "")
 	if err != nil {
 		os.Remove("clonehero.rar")
-		os.RemoveAll("clonehero")
+		removeCloneHero()
 		panic(err)
 	}
 
 	fmt.Println("> Removing Clone Hero archive...")
 	os.Remove("clonehero.rar")
 
-	fmt.Println("> Running Clone Hero...")
-	clonehero()
+	runCloneHero()
 }
 
-func clonehero() {
+func runCloneHero() {
 	fmt.Println("> Running Clone Hero...")
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		cmd := exec.Command("Clone Hero.exe")
 		err := cmd.Start()
 		if err != nil {
 			panic(err)
 		}
-	}
-	if runtime.GOOS == "linux" {
-		cmd := exec.Command("Clone Hero")
+	case "linux":
+		cmd := exec.Command("Clone Hero.x86_64")
 		err := cmd.Run()
 		if err != nil {
 			panic(err)
 		}
+	}
+}
+
+func removeCloneHero() {
+	switch runtime.GOOS {
+	case "windows":
+		os.RemoveAll("Clone Hero_Data")
+		os.Remove("Clone Hero.exe")
+		os.Remove("UnityPlayer.dll")
+	case "linux":
+		os.RemoveAll("Clone Hero_Data")
+		os.Remove("Clone Hero.x86_64")
 	}
 }
 
