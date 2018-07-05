@@ -28,7 +28,7 @@ type Update struct {
 }
 
 func main() {
-	fmt.Println("Clone Hero Installer/Updater © JoshuaDoes: 2018.")
+	fmt.Println("CHUpdater © JoshuaDoes: 2018.")
 	fmt.Println("Detected operating system: " + runtime.GOOS + "/" + runtime.GOARCH)
 	fmt.Println("")
 
@@ -73,6 +73,7 @@ func main() {
 		runCloneHero()
 		os.Exit(0)
 	} else {
+		fmt.Println("> An update is available!")
 		fmt.Println("> Updating...")
 	}
 
