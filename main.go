@@ -6,19 +6,28 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"golang.org/x/net/html"
+	"io"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
 	"strconv"
 
 	"github.com/gen2brain/go-unarr"
-	"github.com/xybydy/go-mega"
 )
 
 const (
-	UpdateURL = "https://clonehero.cameronct.com/ingame/update.php"
+	UpdateURL   = "https://clonehero.net/ingame/update.php"
+	DownloadUrl = "https://clonehero.net/download?all=true"
+	ArchiveName = "clonehero.7z"
+)
+
+var (
+	folderName string
+	fileName   string
 )
 
 type Update struct {
@@ -31,9 +40,7 @@ func main() {
 	fmt.Println("CHUpdater © JoshuaDoes: 2018.")
 	fmt.Println("Detected operating system: " + runtime.GOOS + "/" + runtime.GOARCH)
 	fmt.Println("")
-
-	fmt.Println("> Initializing Mega...")
-	m := mega.New()
+	establishFileName()
 
 	fmt.Println("> Fetching update data...")
 	update := &Update{}
@@ -77,149 +84,86 @@ func main() {
 		fmt.Println("> Updating...")
 	}
 
-	fmt.Println("> Fetching Mega URL...")
-	//Make a function that tells http to not run down the redirect line
-	checkRedirect := func(req *http.Request, via []*http.Request) error {
-		return http.ErrUseLastResponse
-	}
-	//Create an HTTP client that uses our custom checkRedirect function
-	client := &http.Client{CheckRedirect: checkRedirect}
-	//Create the request to the Bitly URL
-	request, err := client.Head(update.Download)
-	if err != nil {
-		defer runCloneHero()
-		panic(err)
-	}
-	//Finally, get the Mega URL from the redirect
-	megaURL := request.Header.Get("Location")
+	fmt.Println("> Fetching Download URL...")
 
-	fmt.Println("> Setting MegaFS to Clone Hero folder...")
-	_, _ = m.ReturnPublicNode(megaURL)
-
-	fmt.Println("> Fetching MegaFS...")
-	megaFS := m.FS
-
-	fmt.Println("> Fetching MegaFS files...")
-	megaFSNodes := megaFS.GetAllNodes()
+	resp, _ := http.Get(DownloadUrl)
+	defer resp.Body.Close()
 
 	fmt.Println("> Looking for Clone Hero " + runtime.GOOS + "/" + runtime.GOARCH + "...")
-	downloadFound := false
-	downloadType := ""
-	for _, v := range megaFSNodes {
-		nodeName := v.GetName()
-
-		switch nodeName {
-		//RAR
-		case "Windows (64).rar":
-			if runtime.GOOS == "windows" && runtime.GOARCH == "amd64" {
-				downloadFound = true
-				downloadType = "rar"
-				fmt.Println("> Downloading Clone Hero for " + runtime.GOOS + "/" + runtime.GOARCH + "...")
-				m.DownloadFile(v, "clonehero.rar", nil, true)
-				break
-			}
-		case "Windows (32).rar":
-			if runtime.GOOS == "windows" && runtime.GOARCH == "386" {
-				downloadFound = true
-				downloadType = "rar"
-				fmt.Println("> Downloading Clone Hero for " + runtime.GOOS + "/" + runtime.GOARCH + "...")
-				m.DownloadFile(v, "clonehero.rar", nil, true)
-				break
-			}
-		case "Linux.rar":
-			if runtime.GOOS == "linux" {
-				downloadFound = true
-				downloadType = "rar"
-				fmt.Println("> Downloading Clone Hero for " + runtime.GOOS + "/" + runtime.GOARCH + "...")
-				m.DownloadFile(v, "clonehero.rar", nil, true)
-				break
-			}
-
-		//7z
-		case "Windows (64).7z":
-			if runtime.GOOS == "windows" && runtime.GOARCH == "amd64" {
-				downloadFound = true
-				downloadType = "7z"
-				fmt.Println("> Downloading Clone Hero for " + runtime.GOOS + "/" + runtime.GOARCH + "...")
-				m.DownloadFile(v, "clonehero.7z", nil, true)
-				break
-			}
-		case "Windows (32).7z":
-			if runtime.GOOS == "windows" && runtime.GOARCH == "386" {
-				downloadFound = true
-				downloadType = "7z"
-				fmt.Println("> Downloading Clone Hero for " + runtime.GOOS + "/" + runtime.GOARCH + "...")
-				m.DownloadFile(v, "clonehero.7z", nil, true)
-				break
-			}
-		case "Linux.7z":
-			if runtime.GOOS == "linux" {
-				downloadFound = true
-				downloadType = "7z"
-				fmt.Println("> Downloading Clone Hero for " + runtime.GOOS + "/" + runtime.GOARCH + "...")
-				m.DownloadFile(v, "clonehero.7z", nil, true)
-				break
-			}
-		}
+	//Finally, get the Mega URL from the redirect
+	downloadUrl, err := getDownloadUrlFromHTML(resp.Body)
+	out, err := os.Create(ArchiveName)
+	if err != nil {
+		runCloneHero()
+		panic(err)
 	}
-	if !downloadFound {
-		defer runCloneHero()
-		panic(errors.New("Error finding download for " + runtime.GOOS + "/" + runtime.GOARCH))
+
+	resp, err = http.Get(downloadUrl)
+	if err != nil {
+		runCloneHero()
+		panic(err)
+	}
+	defer resp.Body.Close()
+
+	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		runCloneHero()
+		panic(err)
 	}
 
 	fmt.Println("> Removing previous Clone Hero game files...")
-	removeCloneHero()
+	_ = removeCloneHero()
 
 	fmt.Println("> Loading Clone Hero archive into memory...")
-	archive, err := unarr.NewArchive("clonehero." + downloadType)
+	archive, err := unarr.NewArchive(ArchiveName)
 	if err != nil {
-		os.Remove("clonehero." + downloadType)
-		panic(err)
+		err1 := archive.Close()
+		err2 := os.Remove(ArchiveName)
+		errString := "Archive Open: " + err.Error() + "\n"
+		if err1 != nil {
+			errString += "Archive close Error: " + err1.Error() + "\n"
+		}
+		if err2 != nil {
+			errString += "Archive delete Error: " + err2.Error() + "\n"
+		}
+		panic(errors.New(errString))
 	}
-	defer archive.Close()
 
 	fmt.Println("> Extracting Clone Hero...")
 	err = archive.Extract("")
+	err1 := archive.Close()
+
 	if err != nil {
-		os.Remove("clonehero." + downloadType)
-		removeCloneHero()
-		panic(err)
+		err2 := os.Remove(ArchiveName)
+		_ = removeCloneHero()
+		errString := "Extract Error: " + err.Error() + "\n"
+		if err1 != nil {
+			errString += "Archive close Error: " + err1.Error() + "\n"
+		}
+		if err2 != nil {
+			errString += "Archive delete Error: " + err2.Error() + "\n"
+		}
+		panic(errors.New(errString))
 	}
 
 	fmt.Println("> Removing Clone Hero archive...")
-	os.Remove("clonehero." + downloadType)
+	_ = os.Remove(ArchiveName)
 
-	if runtime.GOOS == "linux" {
-		fmt.Println("> Moving game files to current working directory...")
-		_ = os.Rename("Linux/Clone Hero_Data", "Clone Hero_Data")
-		_ = os.Rename("Linux/Clone Hero.x86_64", "Clone Hero.x86_64")
-		_ = os.Rename("Linux/README.txt", "README.txt")
-		os.RemoveAll("Linux")
-	} else if runtime.GOOS == "windows" {
-		if runtime.GOARCH == "386" {
-			fmt.Println("> Moving game files to current working directory...")
-			os.Rename("Windows (32)/Clone Hero_Data", "Clone Hero_Data")
-			os.Rename("Windows (32)/MonoBleedingEdge", "MonoBleedingEdge")
-			os.Rename("Windows (32)/Songs", "Songs")
-			os.Rename("Windows (32)/Clone Hero.exe", "Clone Hero.exe")
-			os.Rename("Windows (32)/README.txt", "README.txt")
-			os.Rename("Windows (32)/UnityCrashHandler32.exe", "UnityCrashHandler32.exe")
-			os.Rename("Windows (32)/UnityPlayer.dll", "UnityPlayer.dll")
-			os.RemoveAll("Windows (32)")
-		} else if runtime.GOARCH == "amd64" {
-			fmt.Println("> Moving game files to current working directory...")
-			os.Rename("Windows (64)/Clone Hero_Data", "Clone Hero_Data")
-			os.Rename("Windows (64)/MonoBleedingEdge", "MonoBleedingEdge")
-			os.Rename("Windows (64)/Songs", "Songs")
-			os.Rename("Windows (64)/Clone Hero.exe", "Clone Hero.exe")
-			os.Rename("Windows (64)/README.txt", "README.txt")
-			os.Rename("Windows (64)/UnityCrashHandler32.exe", "UnityCrashHandler32.exe")
-			os.Rename("Windows (64)/UnityPlayer.dll", "UnityPlayer.dll")
-			os.RemoveAll("Windows (64)")
-		}
-	}
+	moveFiles()
 
 	runCloneHero()
+}
+
+func moveFiles() {
+	fmt.Println("> Moving game files to current working directory...")
+	files, _ := ioutil.ReadDir(folderName)
+
+	if files != nil {
+		for _, file := range files {
+			_ = os.Rename(folderName+"/"+file.Name(), file.Name())
+		}
+		_ = os.RemoveAll(folderName)
+	}
 }
 
 func runCloneHero() {
@@ -240,16 +184,18 @@ func runCloneHero() {
 	}
 }
 
-func removeCloneHero() {
+func removeCloneHero() (err error) {
 	switch runtime.GOOS {
 	case "windows":
-		os.RemoveAll("Clone Hero_Data")
-		os.Remove("Clone Hero.exe")
-		os.Remove("UnityPlayer.dll")
+		err = os.RemoveAll("Clone Hero_Data")
+		err = os.Remove("Clone Hero.exe")
+		err = os.Remove("UnityPlayer.dll")
 	case "linux":
-		os.RemoveAll("Clone Hero_Data")
-		os.Remove("Clone Hero.x86_64")
+		err = os.RemoveAll("Clone Hero_Data")
+		err = os.Remove("Clone Hero.x86_64")
 	}
+
+	return
 }
 
 func unmarshal(body *http.Response, target interface{}) error {
@@ -264,4 +210,44 @@ func float32ToBytes(f float32) []byte {
 		fmt.Println("binary.Write failed:", err)
 	}
 	return buf.Bytes()
+}
+
+func establishFileName() {
+	if runtime.GOOS == "windows" && runtime.GOARCH == "amd64" {
+		folderName = "clonehero-win64"
+	}
+	if runtime.GOOS == "windows" && runtime.GOARCH == "386" {
+		folderName = "clonehero-win32"
+	}
+	if runtime.GOOS == "linux" {
+		folderName = "clonehero-linux"
+	}
+
+	fileName = folderName + ".7z"
+}
+
+func getDownloadUrlFromHTML(body io.ReadCloser) (string, error) {
+	z := html.NewTokenizer(body)
+	for {
+		tt := z.Next()
+
+		switch {
+		case tt == html.ErrorToken:
+			// End of the document, we're done
+			return "", errors.New("unable to find download link")
+		case tt == html.StartTagToken:
+			t := z.Token()
+
+			if t.Data == "a" {
+				for _, a := range t.Attr {
+					if a.Key == "href" {
+						urlParts, _ := url.Parse(a.Val)
+						if urlParts.Host == "dl.clonehero.net" && urlParts.Path == "/"+fileName {
+							return a.Val, nil
+						}
+					}
+				}
+			}
+		}
+	}
 }
